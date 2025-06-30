@@ -367,17 +367,13 @@ public class NavmeshVisualizer
     {
         if (location == -1) return; // Skip if uniform location not found
         
-        // OpenGL expects column-major matrices, but .NET Matrix4x4 is row-major
-        // So we need to transpose the matrix for OpenGL
-        var transposed = Matrix4x4.Transpose(matrix);
-        
-        // Convert Matrix4x4 to float array to ensure proper memory layout
+        // Convert Matrix4x4 to float array in row-major order
         float[] matrixArray = new float[16]
         {
-            transposed.M11, transposed.M12, transposed.M13, transposed.M14,
-            transposed.M21, transposed.M22, transposed.M23, transposed.M24,
-            transposed.M31, transposed.M32, transposed.M33, transposed.M34,
-            transposed.M41, transposed.M42, transposed.M43, transposed.M44
+            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
+            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
+            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
+            matrix.M41, matrix.M42, matrix.M43, matrix.M44
         };
         
         if (!_debugPrinted && location != -1)
@@ -386,11 +382,13 @@ public class NavmeshVisualizer
                                location == _gl.GetUniformLocation(_shaderProgram, "uView") ? "View" :
                                location == _gl.GetUniformLocation(_shaderProgram, "uProjection") ? "Projection" : "Unknown";
             Console.WriteLine($"{matrixType} matrix first row: [{matrixArray[0]:F2}, {matrixArray[1]:F2}, {matrixArray[2]:F2}, {matrixArray[3]:F2}]");
+            Console.WriteLine($"{matrixType} matrix last row:  [{matrixArray[12]:F2}, {matrixArray[13]:F2}, {matrixArray[14]:F2}, {matrixArray[15]:F2}]");
         }
         
         fixed (float* ptr = matrixArray)
         {
-            _gl!.UniformMatrix4(location, 1, false, ptr);
+            // Use transpose=true to convert from row-major (.NET) to column-major (OpenGL)
+            _gl!.UniformMatrix4(location, 1, true, ptr);
         }
     }
     
