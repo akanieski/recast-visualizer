@@ -207,9 +207,21 @@ public class NavmeshVisualizer
     {
         Console.WriteLine($"Creating buffers with {_navmeshVertices.Length} vertices and {_navmeshIndices.Length} indices");
         
+        // Debug: Print some vertex and index data
+        if (_navmeshVertices.Length >= 9)
+        {
+            Console.WriteLine($"Sample vertices: v0=({_navmeshVertices[0]}, {_navmeshVertices[1]}, {_navmeshVertices[2]}) v1=({_navmeshVertices[3]}, {_navmeshVertices[4]}, {_navmeshVertices[5]}) v2=({_navmeshVertices[6]}, {_navmeshVertices[7]}, {_navmeshVertices[8]})");
+        }
+        if (_navmeshIndices.Length >= 6)
+        {
+            Console.WriteLine($"Sample indices: triangle0=({_navmeshIndices[0]}, {_navmeshIndices[1]}, {_navmeshIndices[2]}) triangle1=({_navmeshIndices[3]}, {_navmeshIndices[4]}, {_navmeshIndices[5]})");
+        }
+        
         _vao = _gl!.GenVertexArray();
         _vbo = _gl.GenBuffer();
         _ebo = _gl.GenBuffer();
+        
+        Console.WriteLine($"Generated OpenGL objects: VAO={_vao}, VBO={_vbo}, EBO={_ebo}");
         
         _gl.BindVertexArray(_vao);
         
@@ -222,6 +234,8 @@ public class NavmeshVisualizer
             }
         }
         
+        Console.WriteLine($"Uploaded {_navmeshVertices.Length * sizeof(float)} bytes of vertex data");
+        
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
         unsafe
         {
@@ -231,8 +245,12 @@ public class NavmeshVisualizer
             }
         }
         
+        Console.WriteLine($"Uploaded {_navmeshIndices.Length * sizeof(uint)} bytes of index data");
+        
         _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
         _gl.EnableVertexAttribArray(0);
+        
+        Console.WriteLine("Set up vertex attribute pointer for position (location 0)");
         
         // Check for OpenGL errors
         var error = _gl.GetError();
@@ -277,14 +295,24 @@ public class NavmeshVisualizer
             Console.WriteLine($"Window size: {_window!.Size.X}x{_window.Size.Y}");
             Console.WriteLine($"VAO: {_vao}, VBO: {_vbo}, EBO: {_ebo}, Shader: {_shaderProgram}");
             Console.WriteLine($"Indices to render: {_navmeshIndices.Length}");
-            _debugPrinted = true;
+            Console.WriteLine($"Vertices array length: {_navmeshVertices.Length}");
+            
+            // Debug vertex data sample
+            if (_navmeshVertices.Length >= 9)
+            {
+                Console.WriteLine($"First triangle vertices: ({_navmeshVertices[0]}, {_navmeshVertices[1]}, {_navmeshVertices[2]}), ({_navmeshVertices[3]}, {_navmeshVertices[4]}, {_navmeshVertices[5]}), ({_navmeshVertices[6]}, {_navmeshVertices[7]}, {_navmeshVertices[8]})");
+            }
+            if (_navmeshIndices.Length >= 3)
+            {
+                Console.WriteLine($"First triangle indices: {_navmeshIndices[0]}, {_navmeshIndices[1]}, {_navmeshIndices[2]}");
+            }
         }
-        
+
         _gl!.ClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-        
+
         _gl.UseProgram(_shaderProgram);
-        
+
         // Set up matrices
         var model = Matrix4x4.Identity;
         var view = Matrix4x4.CreateLookAt(_cameraPos, _cameraTarget, _cameraUp);
@@ -294,36 +322,51 @@ public class NavmeshVisualizer
             0.1f,
             100.0f
         );
-        
+
         // Set uniforms
         int modelLoc = _gl.GetUniformLocation(_shaderProgram, "uModel");
         int viewLoc = _gl.GetUniformLocation(_shaderProgram, "uView");
         int projLoc = _gl.GetUniformLocation(_shaderProgram, "uProjection");
-        
+
         // Check if uniforms were found
         if (modelLoc == -1) Console.WriteLine("WARNING: uModel uniform not found");
         if (viewLoc == -1) Console.WriteLine("WARNING: uView uniform not found");
         if (projLoc == -1) Console.WriteLine("WARNING: uProjection uniform not found");
-        
+
         if (!_debugPrinted)
         {
             Console.WriteLine($"Uniform locations - Model: {modelLoc}, View: {viewLoc}, Projection: {projLoc}");
         }
-        
+
         SetMatrix4Uniform(modelLoc, model);
         SetMatrix4Uniform(viewLoc, view);
         SetMatrix4Uniform(projLoc, projection);
-        
+
         // Render navmesh
         _gl.BindVertexArray(_vao);
-        var offset = 0;
-        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, in offset);
         
+        // Check VAO binding
+        _gl.GetInteger(GetPName.VertexArrayBinding, out int currentVAO);
+        if (!_debugPrinted)
+        {
+            Console.WriteLine($"Current VAO binding: {currentVAO}, Expected: {_vao}");
+        }
+        
+        // Use nint zero for DrawElements offset parameter
+        nint offset = 0;
+        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, in offset);
+
         // Check for OpenGL errors during rendering
         var error = _gl.GetError();
         if (error != GLEnum.NoError)
         {
             Console.WriteLine($"OpenGL error during rendering: {error}");
+        }
+        
+        if (!_debugPrinted)
+        {
+            Console.WriteLine($"=== END FIRST RENDER FRAME ===");
+            _debugPrinted = true;
         }
     }
     
@@ -343,6 +386,14 @@ public class NavmeshVisualizer
             transposed.M31, transposed.M32, transposed.M33, transposed.M34,
             transposed.M41, transposed.M42, transposed.M43, transposed.M44
         };
+        
+        if (!_debugPrinted && location != -1)
+        {
+            string matrixType = location == _gl!.GetUniformLocation(_shaderProgram, "uModel") ? "Model" :
+                               location == _gl.GetUniformLocation(_shaderProgram, "uView") ? "View" :
+                               location == _gl.GetUniformLocation(_shaderProgram, "uProjection") ? "Projection" : "Unknown";
+            Console.WriteLine($"{matrixType} matrix first row: [{matrixArray[0]:F2}, {matrixArray[1]:F2}, {matrixArray[2]:F2}, {matrixArray[3]:F2}]");
+        }
         
         fixed (float* ptr = matrixArray)
         {
