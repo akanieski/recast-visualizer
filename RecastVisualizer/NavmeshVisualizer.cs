@@ -2,6 +2,7 @@ using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using Silk.NET.Input;
 using System.Numerics;
+using System.Linq;
 
 namespace RecastVisualizer;
 
@@ -16,7 +17,7 @@ public class NavmeshVisualizer
     private uint _ebo;
     private uint _shaderProgram;
     
-    private Vector3 _cameraPos = new(0, 5, 10);
+    private Vector3 _cameraPos = new(0, 3, 5);  // Closer and simpler position
     private Vector3 _cameraTarget = Vector3.Zero;
     private Vector3 _cameraUp = Vector3.UnitY;
     
@@ -47,13 +48,22 @@ public class NavmeshVisualizer
         _gl = _window!.CreateOpenGL();
         _inputContext = _window!.CreateInput();
         
+        // Debug OpenGL info
+        Console.WriteLine($"OpenGL Version: {_gl.GetStringS(StringName.Version)}");
+        Console.WriteLine($"OpenGL Renderer: {_gl.GetStringS(StringName.Renderer)}");
+        Console.WriteLine($"OpenGL Vendor: {_gl.GetStringS(StringName.Vendor)}");
+        
         // Set viewport
         _gl.Viewport(0, 0, (uint)_window!.Size.X, (uint)_window.Size.Y);
+        Console.WriteLine($"Viewport set to: 0, 0, {_window.Size.X}, {_window.Size.Y}");
         
         // Enable depth testing
         _gl.Enable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);  // Disable face culling to see triangles from both sides
         _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line); // Wireframe mode
+        _gl.LineWidth(2.0f); // Make lines thicker for visibility
+        
+        Console.WriteLine("OpenGL state configured: depth test enabled, face culling disabled, wireframe mode");
         
         // Generate a simple navmesh for testing
         GenerateSimpleNavmesh();
@@ -70,53 +80,22 @@ public class NavmeshVisualizer
     
     private void GenerateSimpleNavmesh()
     {
-        // Create a simple navmesh manually for demonstration
-        // This represents a simple scene with walkable areas
-        
+        // Create a very simple single triangle first to test basic rendering
         var vertices = new List<float>();
         var indices = new List<uint>();
-        uint vertexIndex = 0;
         
-        // Ground plane - main walkable area
-        AddQuad(vertices, indices, ref vertexIndex,
-            new Vector3(-10, 0, -10),
-            new Vector3(10, 0, -10),
-            new Vector3(10, 0, 10),
-            new Vector3(-10, 0, 10));
+        // Simple triangle in front of the camera (at Z=0, camera is at Z=10)
+        vertices.AddRange(new[] { -2.0f, 0.0f, 0.0f }); // Left
+        vertices.AddRange(new[] {  2.0f, 0.0f, 0.0f }); // Right  
+        vertices.AddRange(new[] {  0.0f, 2.0f, 0.0f }); // Top
         
-        // Raised platform
-        AddQuad(vertices, indices, ref vertexIndex,
-            new Vector3(-3, 1, -3),
-            new Vector3(3, 1, -3),
-            new Vector3(3, 1, 3),
-            new Vector3(-3, 1, 3));
-        
-        // Connecting ramp
-        AddQuad(vertices, indices, ref vertexIndex,
-            new Vector3(3, 0, -1),
-            new Vector3(5, 0, -1),
-            new Vector3(5, 1, 1),
-            new Vector3(3, 1, 1));
-        
-        // Additional walkable areas around obstacles
-        // Left side corridor
-        AddQuad(vertices, indices, ref vertexIndex,
-            new Vector3(-8, 0, -2),
-            new Vector3(-6, 0, -2),
-            new Vector3(-6, 0, 2),
-            new Vector3(-8, 0, 2));
-        
-        // Right side corridor  
-        AddQuad(vertices, indices, ref vertexIndex,
-            new Vector3(6, 0, -2),
-            new Vector3(8, 0, -2),
-            new Vector3(8, 0, 2),
-            new Vector3(6, 0, 2));
+        indices.AddRange(new[] { 0u, 1u, 2u });
         
         _navmeshVertices = vertices.ToArray();
         _navmeshIndices = indices.ToArray();
         
-        Console.WriteLine("Generated simple test navmesh");
+        Console.WriteLine("Generated simple test triangle");
+        Console.WriteLine($"Triangle vertices: ({vertices[0]}, {vertices[1]}, {vertices[2]}), ({vertices[3]}, {vertices[4]}, {vertices[5]}), ({vertices[6]}, {vertices[7]}, {vertices[8]})");
     }
     
     private void AddQuad(List<float> vertices, List<uint> indices, ref uint vertexIndex,
@@ -207,15 +186,9 @@ public class NavmeshVisualizer
     {
         Console.WriteLine($"Creating buffers with {_navmeshVertices.Length} vertices and {_navmeshIndices.Length} indices");
         
-        // Debug: Print some vertex and index data
-        if (_navmeshVertices.Length >= 9)
-        {
-            Console.WriteLine($"Sample vertices: v0=({_navmeshVertices[0]}, {_navmeshVertices[1]}, {_navmeshVertices[2]}) v1=({_navmeshVertices[3]}, {_navmeshVertices[4]}, {_navmeshVertices[5]}) v2=({_navmeshVertices[6]}, {_navmeshVertices[7]}, {_navmeshVertices[8]})");
-        }
-        if (_navmeshIndices.Length >= 6)
-        {
-            Console.WriteLine($"Sample indices: triangle0=({_navmeshIndices[0]}, {_navmeshIndices[1]}, {_navmeshIndices[2]}) triangle1=({_navmeshIndices[3]}, {_navmeshIndices[4]}, {_navmeshIndices[5]})");
-        }
+        // Debug: Print all vertex and index data for simple triangle
+        Console.WriteLine($"Vertex data: [{string.Join(", ", _navmeshVertices.Select(f => f.ToString("F2")))}]");
+        Console.WriteLine($"Index data: [{string.Join(", ", _navmeshIndices)}]");
         
         _vao = _gl!.GenVertexArray();
         _vbo = _gl.GenBuffer();
@@ -252,6 +225,10 @@ public class NavmeshVisualizer
         
         Console.WriteLine("Set up vertex attribute pointer for position (location 0)");
         
+        // Unbind buffers
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
+        _gl.BindVertexArray(0);
+        
         // Check for OpenGL errors
         var error = _gl.GetError();
         if (error != GLEnum.NoError)
@@ -266,14 +243,8 @@ public class NavmeshVisualizer
     
     private void OnUpdate(double deltaTime)
     {
-        // Simple camera rotation around the navmesh
-        float time = (float)_window!.Time;
-        float radius = 15.0f;
-        _cameraPos = new Vector3(
-            (float)(Math.Sin(time * 0.3) * radius),
-            8,
-            (float)(Math.Cos(time * 0.3) * radius)
-        );
+        // Keep camera static for now to debug
+        // _cameraPos stays at (0, 3, 5) looking at (0, 0, 0)
         
         // Handle input for exit
         if (_inputContext!.Keyboards.Count > 0)
@@ -281,7 +252,7 @@ public class NavmeshVisualizer
             var keyboard = _inputContext.Keyboards[0];
             if (keyboard.IsKeyPressed(Key.Escape))
             {
-                _window.Close();
+                _window!.Close();
             }
         }
     }
@@ -291,21 +262,15 @@ public class NavmeshVisualizer
         if (!_debugPrinted)
         {
             Console.WriteLine($"=== FIRST RENDER FRAME ===");
-            Console.WriteLine($"Camera pos: {_cameraPos}, Target: {_cameraTarget}");
+            Console.WriteLine($"Camera pos: ({_cameraPos.X:F2}, {_cameraPos.Y:F2}, {_cameraPos.Z:F2}), Target: ({_cameraTarget.X:F2}, {_cameraTarget.Y:F2}, {_cameraTarget.Z:F2})");
             Console.WriteLine($"Window size: {_window!.Size.X}x{_window.Size.Y}");
             Console.WriteLine($"VAO: {_vao}, VBO: {_vbo}, EBO: {_ebo}, Shader: {_shaderProgram}");
             Console.WriteLine($"Indices to render: {_navmeshIndices.Length}");
             Console.WriteLine($"Vertices array length: {_navmeshVertices.Length}");
             
-            // Debug vertex data sample
-            if (_navmeshVertices.Length >= 9)
-            {
-                Console.WriteLine($"First triangle vertices: ({_navmeshVertices[0]}, {_navmeshVertices[1]}, {_navmeshVertices[2]}), ({_navmeshVertices[3]}, {_navmeshVertices[4]}, {_navmeshVertices[5]}), ({_navmeshVertices[6]}, {_navmeshVertices[7]}, {_navmeshVertices[8]})");
-            }
-            if (_navmeshIndices.Length >= 3)
-            {
-                Console.WriteLine($"First triangle indices: {_navmeshIndices[0]}, {_navmeshIndices[1]}, {_navmeshIndices[2]}");
-            }
+            // Debug all vertex data for the simple triangle
+            Console.WriteLine($"All vertices: [{string.Join(", ", _navmeshVertices.Select(f => f.ToString("F2")))}]");
+            Console.WriteLine($"All indices: [{string.Join(", ", _navmeshIndices)}]");
         }
 
         _gl!.ClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
@@ -317,11 +282,18 @@ public class NavmeshVisualizer
         var model = Matrix4x4.Identity;
         var view = Matrix4x4.CreateLookAt(_cameraPos, _cameraTarget, _cameraUp);
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 4,
+            MathF.PI / 4,  // 45 degrees
             (float)_window!.Size.X / _window.Size.Y,
-            0.1f,
-            100.0f
+            0.1f,   // Near plane
+            100.0f  // Far plane
         );
+
+        if (!_debugPrinted)
+        {
+            Console.WriteLine($"Field of view: {MathF.PI / 4 * 180 / MathF.PI:F1} degrees");
+            Console.WriteLine($"Aspect ratio: {(float)_window.Size.X / _window.Size.Y:F2}");
+            Console.WriteLine($"Near plane: 0.1, Far plane: 100.0");
+        }
 
         // Set uniforms
         int modelLoc = _gl.GetUniformLocation(_shaderProgram, "uModel");
@@ -341,6 +313,26 @@ public class NavmeshVisualizer
         SetMatrix4Uniform(modelLoc, model);
         SetMatrix4Uniform(viewLoc, view);
         SetMatrix4Uniform(projLoc, projection);
+
+        // Debug: manually calculate where the triangle vertices should end up
+        if (!_debugPrinted)
+        {
+            var mvp = view * projection;  // Fixed matrix order for row-major matrices
+            for (int i = 0; i < _navmeshVertices.Length; i += 3)
+            {
+                var worldPos = new Vector4(_navmeshVertices[i], _navmeshVertices[i+1], _navmeshVertices[i+2], 1.0f);
+                var clipPos = Vector4.Transform(worldPos, mvp);
+                if (clipPos.W != 0)
+                {
+                    var ndcPos = clipPos / clipPos.W;
+                    Console.WriteLine($"Vertex {i/3}: World({worldPos.X:F2}, {worldPos.Y:F2}, {worldPos.Z:F2}) -> NDC({ndcPos.X:F2}, {ndcPos.Y:F2}, {ndcPos.Z:F2})");
+                }
+                else
+                {
+                    Console.WriteLine($"Vertex {i/3}: ERROR - W component is 0!");
+                }
+            }
+        }
 
         // Render navmesh
         _gl.BindVertexArray(_vao);
@@ -365,6 +357,7 @@ public class NavmeshVisualizer
         
         if (!_debugPrinted)
         {
+            Console.WriteLine($"DrawElements called with {_navmeshIndices.Length} indices");
             Console.WriteLine($"=== END FIRST RENDER FRAME ===");
             _debugPrinted = true;
         }
