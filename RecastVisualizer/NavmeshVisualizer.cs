@@ -80,14 +80,15 @@ public class NavmeshVisualizer
     
     private void GenerateSimpleNavmesh()
     {
-        // Create a very simple single triangle first to test basic rendering
+        // Create a simple triangle positioned correctly for the camera
         var vertices = new List<float>();
         var indices = new List<uint>();
         
-        // Simple triangle in front of the camera (at Z=0, camera is at Z=10)
-        vertices.AddRange(new[] { -2.0f, 0.0f, 0.0f }); // Left
-        vertices.AddRange(new[] {  2.0f, 0.0f, 0.0f }); // Right  
-        vertices.AddRange(new[] {  0.0f, 2.0f, 0.0f }); // Top
+        // Camera is at (0, 3, 5) looking at (0, 0, 0)
+        // Place triangle at a reasonable distance - halfway between camera and target
+        vertices.AddRange(new[] { -0.5f, 0.0f, -2.5f }); // Left
+        vertices.AddRange(new[] {  0.5f, 0.0f, -2.5f }); // Right  
+        vertices.AddRange(new[] {  0.0f, 0.5f, -2.5f }); // Top
         
         indices.AddRange(new[] { 0u, 1u, 2u });
         
@@ -182,7 +183,7 @@ public class NavmeshVisualizer
         }
     }
     
-    private void CreateBuffers()
+    private unsafe void CreateBuffers()
     {
         Console.WriteLine($"Creating buffers with {_navmeshVertices.Length} vertices and {_navmeshIndices.Length} indices");
         
@@ -195,10 +196,14 @@ public class NavmeshVisualizer
         _ebo = _gl.GenBuffer();
         
         Console.WriteLine($"Generated OpenGL objects: VAO={_vao}, VBO={_vbo}, EBO={_ebo}");
+        CheckGLError("After generating buffers");
         
         _gl.BindVertexArray(_vao);
+        CheckGLError("After binding VAO");
         
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        CheckGLError("After binding VBO");
+        
         unsafe
         {
             fixed (void* v = &_navmeshVertices[0])
@@ -206,10 +211,12 @@ public class NavmeshVisualizer
                 _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(_navmeshVertices.Length * sizeof(float)), v, BufferUsageARB.StaticDraw);
             }
         }
-        
+        CheckGLError("After uploading vertex data");
         Console.WriteLine($"Uploaded {_navmeshVertices.Length * sizeof(float)} bytes of vertex data");
         
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
+        CheckGLError("After binding EBO");
+        
         unsafe
         {
             fixed (void* i = &_navmeshIndices[0])
@@ -217,27 +224,33 @@ public class NavmeshVisualizer
                 _gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(_navmeshIndices.Length * sizeof(uint)), i, BufferUsageARB.StaticDraw);
             }
         }
-        
+        CheckGLError("After uploading index data");
         Console.WriteLine($"Uploaded {_navmeshIndices.Length * sizeof(uint)} bytes of index data");
         
-        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
-        _gl.EnableVertexAttribArray(0);
+        // Set up vertex attributes with proper stride and offset
+        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), (void*)0);
+        CheckGLError("After setting vertex attribute pointer");
         
+        _gl.EnableVertexAttribArray(0);
+        CheckGLError("After enabling vertex attribute array");
         Console.WriteLine("Set up vertex attribute pointer for position (location 0)");
         
-        // Unbind buffers
+        // Keep VAO bound, only unbind array buffer - EBO stays bound to VAO
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
-        _gl.BindVertexArray(0);
+        CheckGLError("After unbinding array buffer");
         
-        // Check for OpenGL errors
-        var error = _gl.GetError();
+        // Don't unbind VAO here - keep it bound or rebind during rendering
+        // _gl.BindVertexArray(0);
+        
+        Console.WriteLine("Buffers created successfully");
+    }
+    
+    private void CheckGLError(string context)
+    {
+        var error = _gl!.GetError();
         if (error != GLEnum.NoError)
         {
-            Console.WriteLine($"OpenGL error after buffer creation: {error}");
-        }
-        else
-        {
-            Console.WriteLine("Buffers created successfully");
+            Console.WriteLine($"OpenGL error {context}: {error}");
         }
     }
     
@@ -257,7 +270,7 @@ public class NavmeshVisualizer
         }
     }
     
-    private void OnRender(double deltaTime)
+    private unsafe void OnRender(double deltaTime)
     {
         if (!_debugPrinted)
         {
@@ -336,6 +349,7 @@ public class NavmeshVisualizer
 
         // Render navmesh
         _gl.BindVertexArray(_vao);
+        CheckGLError("After binding VAO for rendering");
         
         // Check VAO binding
         _gl.GetInteger(GetPName.VertexArrayBinding, out int currentVAO);
@@ -344,16 +358,9 @@ public class NavmeshVisualizer
             Console.WriteLine($"Current VAO binding: {currentVAO}, Expected: {_vao}");
         }
         
-        // Use nint zero for DrawElements offset parameter
-        nint offset = 0;
-        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, in offset);
-
-        // Check for OpenGL errors during rendering
-        var error = _gl.GetError();
-        if (error != GLEnum.NoError)
-        {
-            Console.WriteLine($"OpenGL error during rendering: {error}");
-        }
+        // Draw the triangles - offset should be 0 for start of buffer
+        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, (void*)0);
+        CheckGLError("After DrawElements call");
         
         if (!_debugPrinted)
         {
