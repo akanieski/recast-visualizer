@@ -23,6 +23,8 @@ public class NavmeshVisualizer
     private float[] _navmeshVertices = Array.Empty<float>();
     private uint[] _navmeshIndices = Array.Empty<uint>();
     
+    private static bool _debugPrinted = false;
+    
     public void Run()
     {
         var options = WindowOptions.Default;
@@ -35,6 +37,7 @@ public class NavmeshVisualizer
         _window.Render += OnRender;
         _window.Update += OnUpdate;
         _window.Closing += OnClose;
+        _window.Resize += OnResize;
         
         _window.Run();
     }
@@ -44,9 +47,12 @@ public class NavmeshVisualizer
         _gl = _window!.CreateOpenGL();
         _inputContext = _window!.CreateInput();
         
+        // Set viewport
+        _gl.Viewport(0, 0, (uint)_window!.Size.X, (uint)_window.Size.Y);
+        
         // Enable depth testing
         _gl.Enable(EnableCap.DepthTest);
-        _gl.Enable(EnableCap.CullFace);
+        _gl.Disable(EnableCap.CullFace);  // Disable face culling to see triangles from both sides
         _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line); // Wireframe mode
         
         // Generate a simple navmesh for testing
@@ -264,6 +270,16 @@ public class NavmeshVisualizer
     
     private void OnRender(double deltaTime)
     {
+        if (!_debugPrinted)
+        {
+            Console.WriteLine($"=== FIRST RENDER FRAME ===");
+            Console.WriteLine($"Camera pos: {_cameraPos}, Target: {_cameraTarget}");
+            Console.WriteLine($"Window size: {_window!.Size.X}x{_window.Size.Y}");
+            Console.WriteLine($"VAO: {_vao}, VBO: {_vbo}, EBO: {_ebo}, Shader: {_shaderProgram}");
+            Console.WriteLine($"Indices to render: {_navmeshIndices.Length}");
+            _debugPrinted = true;
+        }
+        
         _gl!.ClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         
@@ -289,14 +305,19 @@ public class NavmeshVisualizer
         if (viewLoc == -1) Console.WriteLine("WARNING: uView uniform not found");
         if (projLoc == -1) Console.WriteLine("WARNING: uProjection uniform not found");
         
+        if (!_debugPrinted)
+        {
+            Console.WriteLine($"Uniform locations - Model: {modelLoc}, View: {viewLoc}, Projection: {projLoc}");
+        }
+        
         SetMatrix4Uniform(modelLoc, model);
         SetMatrix4Uniform(viewLoc, view);
         SetMatrix4Uniform(projLoc, projection);
         
         // Render navmesh
         _gl.BindVertexArray(_vao);
-        nint offset = 0;
-        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, ref offset);
+        var offset = 0;
+        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, in offset);
         
         // Check for OpenGL errors during rendering
         var error = _gl.GetError();
@@ -310,19 +331,28 @@ public class NavmeshVisualizer
     {
         if (location == -1) return; // Skip if uniform location not found
         
+        // OpenGL expects column-major matrices, but .NET Matrix4x4 is row-major
+        // So we need to transpose the matrix for OpenGL
+        var transposed = Matrix4x4.Transpose(matrix);
+        
         // Convert Matrix4x4 to float array to ensure proper memory layout
         float[] matrixArray = new float[16]
         {
-            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-            matrix.M41, matrix.M42, matrix.M43, matrix.M44
+            transposed.M11, transposed.M12, transposed.M13, transposed.M14,
+            transposed.M21, transposed.M22, transposed.M23, transposed.M24,
+            transposed.M31, transposed.M32, transposed.M33, transposed.M34,
+            transposed.M41, transposed.M42, transposed.M43, transposed.M44
         };
         
         fixed (float* ptr = matrixArray)
         {
             _gl!.UniformMatrix4(location, 1, false, ptr);
         }
+    }
+    
+    private void OnResize(Silk.NET.Maths.Vector2D<int> size)
+    {
+        _gl?.Viewport(0, 0, (uint)size.X, (uint)size.Y);
     }
     
     private void OnClose()
