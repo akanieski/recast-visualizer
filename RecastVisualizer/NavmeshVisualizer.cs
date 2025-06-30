@@ -42,7 +42,7 @@ public class NavmeshVisualizer
     private void OnLoad()
     {
         _gl = _window!.CreateOpenGL();
-        _inputContext = _window.CreateInput();
+        _inputContext = _window!.CreateInput();
         
         // Enable depth testing
         _gl.Enable(EnableCap.DepthTest);
@@ -199,6 +199,8 @@ public class NavmeshVisualizer
     
     private void CreateBuffers()
     {
+        Console.WriteLine($"Creating buffers with {_navmeshVertices.Length} vertices and {_navmeshIndices.Length} indices");
+        
         _vao = _gl!.GenVertexArray();
         _vbo = _gl.GenBuffer();
         _ebo = _gl.GenBuffer();
@@ -225,6 +227,17 @@ public class NavmeshVisualizer
         
         _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
         _gl.EnableVertexAttribArray(0);
+        
+        // Check for OpenGL errors
+        var error = _gl.GetError();
+        if (error != GLEnum.NoError)
+        {
+            Console.WriteLine($"OpenGL error after buffer creation: {error}");
+        }
+        else
+        {
+            Console.WriteLine("Buffers created successfully");
+        }
     }
     
     private void OnUpdate(double deltaTime)
@@ -251,8 +264,8 @@ public class NavmeshVisualizer
     
     private void OnRender(double deltaTime)
     {
-        _gl!.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-        _gl.ClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
+        _gl!.ClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Dark blue background
+        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         
         _gl.UseProgram(_shaderProgram);
         
@@ -271,18 +284,45 @@ public class NavmeshVisualizer
         int viewLoc = _gl.GetUniformLocation(_shaderProgram, "uView");
         int projLoc = _gl.GetUniformLocation(_shaderProgram, "uProjection");
         
+        // Check if uniforms were found
+        if (modelLoc == -1) Console.WriteLine("WARNING: uModel uniform not found");
+        if (viewLoc == -1) Console.WriteLine("WARNING: uView uniform not found");
+        if (projLoc == -1) Console.WriteLine("WARNING: uProjection uniform not found");
+        
         SetMatrix4Uniform(modelLoc, model);
         SetMatrix4Uniform(viewLoc, view);
         SetMatrix4Uniform(projLoc, projection);
         
         // Render navmesh
         _gl.BindVertexArray(_vao);
-        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, 0);
+        nint offset = 0;
+        _gl.DrawElements(PrimitiveType.Triangles, (uint)_navmeshIndices.Length, DrawElementsType.UnsignedInt, ref offset);
+        
+        // Check for OpenGL errors during rendering
+        var error = _gl.GetError();
+        if (error != GLEnum.NoError)
+        {
+            Console.WriteLine($"OpenGL error during rendering: {error}");
+        }
     }
     
     private unsafe void SetMatrix4Uniform(int location, Matrix4x4 matrix)
     {
-        _gl!.UniformMatrix4(location, 1, false, (float*)&matrix);
+        if (location == -1) return; // Skip if uniform location not found
+        
+        // Convert Matrix4x4 to float array to ensure proper memory layout
+        float[] matrixArray = new float[16]
+        {
+            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
+            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
+            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
+            matrix.M41, matrix.M42, matrix.M43, matrix.M44
+        };
+        
+        fixed (float* ptr = matrixArray)
+        {
+            _gl!.UniformMatrix4(location, 1, false, ptr);
+        }
     }
     
     private void OnClose()
